@@ -10,53 +10,71 @@ impl<'a> Lexer<'a> {
         Self { data, cursor: 0 }
     }
 
-    pub fn next(&mut self) -> Option<Token<'a>> {
+    pub fn next(&mut self) -> Result<Token<'a>, String> {
         if self.cursor >= self.data.len() {
-            return Some(Token::new(TokenKind::Eof, self.cursor));
+            return Ok(Token::new(TokenKind::Eof, self.cursor));
         }
 
         let pos = self.cursor;
         let peek = self.data[self.cursor];
 
         match peek {
-            b'a'..=b'z' | b'A'..=b'Z' => {
-                return Some(Token::new(self.lex_identifier_or_kw(), pos));
-            }
-            b'0'..=b'9' => return Some(Token::new(self.lex_numerical_literal(), pos)),
-            _ => return self.lex_other(),
-        };
+            b'\'' => Ok(Token::new(self.lex_string_literal(), pos)),
+            b'a'..=b'z' | b'A'..=b'Z' => Ok(Token::new(self.lex_identifier_or_kw(), pos)),
+            b'0'..=b'9' => Ok(Token::new(self.lex_numerical_literal(), pos)),
+            _ => self.lex_single_chars(),
+        }
     }
 
-    fn lex_other(&mut self) -> Option<Token<'a>> {
+    fn lex_single_chars(&mut self) -> Result<Token<'a>, String> {
         let pos = self.cursor;
         let take = self.data[self.cursor];
         self.cursor += 1;
 
         match take {
-            b'(' => Some(Token::new(TokenKind::Punc(PuncKind::LParen), pos)),
-            b')' => Some(Token::new(TokenKind::Punc(PuncKind::RParen), pos)),
-            b'[' => Some(Token::new(TokenKind::Punc(PuncKind::LBracket), pos)),
-            b']' => Some(Token::new(TokenKind::Punc(PuncKind::RBracket), pos)),
-            b',' => Some(Token::new(TokenKind::Punc(PuncKind::Comma), pos)),
-            b';' => Some(Token::new(TokenKind::Punc(PuncKind::SemiColon), pos)),
-            b':' => Some(Token::new(TokenKind::Punc(PuncKind::Colon), pos)),
-            _ => None,
+            b'\t' => Ok(Token::new(TokenKind::Whitespace(WhitespaceKind::HorizontalTab), pos)),
+            b' ' => Ok(Token::new(TokenKind::Whitespace(WhitespaceKind::Space), pos)),
+            b'\n' => Ok(Token::new(TokenKind::LineTerminator(LineTerminatorKind::LineFeed), pos)),
+            b'\r' => Ok(Token::new(TokenKind::LineTerminator(LineTerminatorKind::CarridgeReturn), pos)),
+            b'(' => Ok(Token::new(TokenKind::Punc(PuncKind::LParen), pos)),
+            b')' => Ok(Token::new(TokenKind::Punc(PuncKind::RParen), pos)),
+            b'[' => Ok(Token::new(TokenKind::Punc(PuncKind::LBracket), pos)),
+            b']' => Ok(Token::new(TokenKind::Punc(PuncKind::RBracket), pos)),
+            b',' => Ok(Token::new(TokenKind::Punc(PuncKind::Comma), pos)),
+            b';' => Ok(Token::new(TokenKind::Punc(PuncKind::SemiColon), pos)),
+            b':' => Ok(Token::new(TokenKind::Punc(PuncKind::Colon), pos)),
+            b'=' => Ok(Token::new(TokenKind::Punc(PuncKind::Equal), pos)),
+            _ => Err(format!("Unknown artifact at position: {pos}")),
         }
+    }
+
+    fn lex_string_literal(&mut self) -> TokenKind<'a> {
+        self.cursor += 1;
+        let start = self.cursor;
+        while self.data[self.cursor] != b'\'' || self.data[self.cursor - 1] == b'\\' {
+            self.cursor += 1;
+        }
+
+        let slice = &self.data[start..self.cursor];
+        self.cursor += 1;
+
+        let word = std::str::from_utf8(slice).expect("word should be utf8");
+        TokenKind::Literal(LiteralKind::String(word))
     }
 
     fn lex_identifier_or_kw(&mut self) -> TokenKind<'a> {
         let start = self.cursor;
-        while self.data[self.cursor].is_ascii_alphabetic() {
+        while self.cursor < self.data.len() && self.data[self.cursor].is_ascii_alphabetic() {
             self.cursor += 1;
         }
 
         let slice = &self.data[start..self.cursor];
         let word = std::str::from_utf8(slice).expect("word should be utf-8");
 
-        return match match_kw(word) {
+        match match_kw(word) {
             Some(kw) => TokenKind::Keyword(kw),
             None => TokenKind::Identifier(word),
-        };
+        }
     }
 
     fn lex_numerical_literal(&self) -> TokenKind<'a> {
@@ -159,5 +177,51 @@ mod tests {
         assert_eq!(TokenKind::Punc(PuncKind::RBracket), l.next().unwrap().kind);
         assert_eq!(TokenKind::Punc(PuncKind::LBracket), l.next().unwrap().kind);
         assert_eq!(TokenKind::Punc(PuncKind::RParen), l.next().unwrap().kind);
+        assert_eq!(TokenKind::Eof, l.next().unwrap().kind);
+    }
+
+    #[test]
+    fn test_kw() {
+        let mut l = Lexer::new(b"select weight from dog;");
+
+        assert_eq!(TokenKind::Keyword(KeywordKind::Select), l.next().unwrap().kind);
+        assert_eq!(TokenKind::Whitespace(WhitespaceKind::Space), l.next().unwrap().kind);
+        assert_eq!(TokenKind::Identifier("weight"), l.next().unwrap().kind);
+        assert_eq!(TokenKind::Whitespace(WhitespaceKind::Space), l.next().unwrap().kind);
+        assert_eq!(TokenKind::Keyword(KeywordKind::From), l.next().unwrap().kind);
+        assert_eq!(TokenKind::Whitespace(WhitespaceKind::Space), l.next().unwrap().kind);
+        assert_eq!(TokenKind::Identifier("dog"), l.next().unwrap().kind);
+        assert_eq!(TokenKind::Punc(PuncKind::SemiColon), l.next().unwrap().kind);
+        assert_eq!(TokenKind::Eof, l.next().unwrap().kind);
+    }
+
+    #[test]
+    fn test_string_literal() {
+        let mut l = Lexer::new(b"UPDATE dog SET color = 'golden' WHERE breed = 'golden retriever';");
+
+        assert_eq!(TokenKind::Keyword(KeywordKind::Update), l.next().unwrap().kind);
+        assert_eq!(TokenKind::Whitespace(WhitespaceKind::Space), l.next().unwrap().kind);
+        assert_eq!(TokenKind::Identifier("dog"), l.next().unwrap().kind);
+        assert_eq!(TokenKind::Whitespace(WhitespaceKind::Space), l.next().unwrap().kind);
+        assert_eq!(TokenKind::Keyword(KeywordKind::Set), l.next().unwrap().kind);
+        assert_eq!(TokenKind::Whitespace(WhitespaceKind::Space), l.next().unwrap().kind);
+        assert_eq!(TokenKind::Identifier("color"), l.next().unwrap().kind);
+        assert_eq!(TokenKind::Whitespace(WhitespaceKind::Space), l.next().unwrap().kind);
+        assert_eq!(TokenKind::Punc(PuncKind::Equal), l.next().unwrap().kind);
+        assert_eq!(TokenKind::Whitespace(WhitespaceKind::Space), l.next().unwrap().kind);
+        assert_eq!(TokenKind::Literal(LiteralKind::String("golden")), l.next().unwrap().kind);
+        assert_eq!(TokenKind::Whitespace(WhitespaceKind::Space), l.next().unwrap().kind);
+        assert_eq!(TokenKind::Keyword(KeywordKind::Where), l.next().unwrap().kind);
+        assert_eq!(TokenKind::Whitespace(WhitespaceKind::Space), l.next().unwrap().kind);
+        assert_eq!(TokenKind::Identifier("breed"), l.next().unwrap().kind);
+        assert_eq!(TokenKind::Whitespace(WhitespaceKind::Space), l.next().unwrap().kind);
+        assert_eq!(TokenKind::Punc(PuncKind::Equal), l.next().unwrap().kind);
+        assert_eq!(TokenKind::Whitespace(WhitespaceKind::Space), l.next().unwrap().kind);
+        assert_eq!(
+            TokenKind::Literal(LiteralKind::String("golden retriever")),
+            l.next().unwrap().kind
+        );
+        assert_eq!(TokenKind::Punc(PuncKind::SemiColon), l.next().unwrap().kind);
+        assert_eq!(TokenKind::Eof, l.next().unwrap().kind);
     }
 }
