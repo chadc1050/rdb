@@ -1,8 +1,9 @@
 use crate::parser::token::*;
+use std::cell::Cell;
 
 pub struct Lexer<'a> {
     data: &'a [u8],
-    cursor: usize,
+    cursor: Cell<usize>,
 }
 
 #[derive(Debug)]
@@ -11,18 +12,30 @@ pub struct LexerError {
     pub pos: usize,
 }
 
+impl LexerError {
+    fn new(message: String, pos: usize) -> Self {
+        LexerError {
+            message,
+            pos: pos.into(),
+        }
+    }
+}
+
 impl<'a> Lexer<'a> {
     pub fn new(data: &'a [u8]) -> Self {
-        Self { data, cursor: 0 }
+        Self {
+            data,
+            cursor: Cell::new(0),
+        }
     }
 
-    pub fn next(&mut self) -> Result<Token<'a>, LexerError> {
-        if self.cursor >= self.data.len() {
-            return Ok(Token::new(TokenKind::Eof, self.cursor));
+    pub fn next(&self) -> Result<Token<'a>, LexerError> {
+        let pos = self.cursor.get();
+        if pos >= self.data.len() {
+            return Ok(Token::new(TokenKind::Eof, pos));
         }
 
-        let pos = self.cursor;
-        let peek = self.data[self.cursor];
+        let peek = self.data[pos];
 
         match peek {
             b'\'' => Ok(Token::new(self.lex_string_literal(), pos)),
@@ -32,10 +45,31 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn lex_single_chars(&mut self) -> Result<Token<'a>, LexerError> {
-        let pos = self.cursor;
-        let take = self.data[self.cursor];
-        self.cursor += 1;
+    pub fn peek(&self) -> Result<Token<'a>, LexerError> {
+        let start = self.cursor.get();
+        let next = self.next();
+        self.cursor.set(start);
+        next
+    }
+
+    pub fn expect(&self, expected: TokenKind) -> Result<(), LexerError> {
+        let pos = self.cursor.get();
+        match self.next() {
+            Ok(t) => {
+                if t.kind == expected {
+                    Ok(())
+                } else {
+                    Err(LexerError::new(format!("Unexpected token: {0}", t.kind), pos))
+                }
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    fn lex_single_chars(&self) -> Result<Token<'a>, LexerError> {
+        let pos = self.cursor.get();
+        let take = self.data[pos];
+        self.cursor.set(pos + 1);
 
         match take {
             b'\t' => Ok(Token::new(TokenKind::Whitespace(WhitespaceKind::HorizontalTab), pos)),
@@ -52,32 +86,37 @@ impl<'a> Lexer<'a> {
             b'=' => Ok(Token::new(TokenKind::Punc(PuncKind::Equal), pos)),
             _ => Err(LexerError {
                 message: "unknown artifact".to_string(),
-                pos,
+                pos: pos.into(),
             }),
         }
     }
 
-    fn lex_string_literal(&mut self) -> TokenKind<'a> {
-        self.cursor += 1;
-        let start = self.cursor;
-        while self.data[self.cursor] != b'\'' || self.data[self.cursor - 1] == b'\\' {
-            self.cursor += 1;
+    fn lex_string_literal(&self) -> TokenKind<'a> {
+        let start = self.cursor.get() + 1;
+        let mut pos = start;
+        while self.data[pos] != b'\'' || self.data[pos - 1] == b'\\' {
+            pos += 1;
         }
 
-        let slice = &self.data[start..self.cursor];
-        self.cursor += 1;
+        let slice = &self.data[start..pos];
+        pos += 1;
+
+        self.cursor.set(pos);
 
         let word = std::str::from_utf8(slice).expect("word should be utf8");
         TokenKind::Literal(LiteralKind::String(word))
     }
 
-    fn lex_identifier_or_kw(&mut self) -> TokenKind<'a> {
-        let start = self.cursor;
-        while self.cursor < self.data.len() && self.data[self.cursor].is_ascii_alphabetic() {
-            self.cursor += 1;
+    fn lex_identifier_or_kw(&self) -> TokenKind<'a> {
+        let start = self.cursor.get();
+        let mut pos = start;
+        while pos < self.data.len() && self.data[pos].is_ascii_alphabetic() {
+            pos += 1;
         }
 
-        let slice = &self.data[start..self.cursor];
+        self.cursor.set(pos);
+
+        let slice = &self.data[start..pos];
         let word = std::str::from_utf8(slice).expect("word should be utf-8");
 
         match match_kw(word) {
@@ -177,7 +216,7 @@ mod tests {
 
     #[test]
     fn test_punc() {
-        let mut l = Lexer::new(b",:;(][)");
+        let l = Lexer::new(b",:;(][)");
 
         assert_eq!(TokenKind::Punc(PuncKind::Comma), l.next().unwrap().kind);
         assert_eq!(TokenKind::Punc(PuncKind::Colon), l.next().unwrap().kind);
@@ -191,7 +230,7 @@ mod tests {
 
     #[test]
     fn test_kw() {
-        let mut l = Lexer::new(b"select weight from dog;");
+        let l = Lexer::new(b"select weight from dog;");
 
         assert_eq!(TokenKind::Keyword(KeywordKind::Select), l.next().unwrap().kind);
         assert_eq!(TokenKind::Whitespace(WhitespaceKind::Space), l.next().unwrap().kind);
@@ -206,7 +245,7 @@ mod tests {
 
     #[test]
     fn test_string_literal() {
-        let mut l = Lexer::new(b"UPDATE dog SET color = 'golden' WHERE breed = 'golden retriever';");
+        let l = Lexer::new(b"UPDATE dog SET color = 'golden' WHERE breed = 'golden retriever';");
 
         assert_eq!(TokenKind::Keyword(KeywordKind::Update), l.next().unwrap().kind);
         assert_eq!(TokenKind::Whitespace(WhitespaceKind::Space), l.next().unwrap().kind);
