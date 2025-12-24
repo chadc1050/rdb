@@ -14,10 +14,7 @@ pub struct LexerError {
 
 impl LexerError {
     fn new(message: String, pos: usize) -> Self {
-        LexerError {
-            message,
-            pos: pos.into(),
-        }
+        LexerError { message, pos }
     }
 }
 
@@ -30,19 +27,34 @@ impl<'a> Lexer<'a> {
     }
 
     pub fn next(&self) -> Result<Token<'a>, LexerError> {
-        let pos = self.cursor.get();
-        if pos >= self.data.len() {
-            return Ok(Token::new(TokenKind::Eof, pos));
-        }
+        loop {
+            let pos = self.cursor.get();
+            if self.is_end() {
+                return Ok(Token::new(TokenKind::Eof, pos));
+            }
 
-        let peek = self.data[pos];
+            let peek = self.data[pos];
 
-        match peek {
-            b'\'' => Ok(Token::new(self.lex_string_literal(), pos)),
-            b'a'..=b'z' | b'A'..=b'Z' => Ok(Token::new(self.lex_identifier_or_kw(), pos)),
-            b'0'..=b'9' => Ok(Token::new(self.lex_numerical_literal(), pos)),
-            _ => self.lex_single_chars(),
+            let token = match peek {
+                b'\'' => Ok(Token::new(self.lex_string_literal(), pos)),
+                b'a'..=b'z' | b'A'..=b'Z' => Ok(Token::new(self.lex_identifier_or_kw(), pos)),
+                b'0'..=b'9' => Ok(Token::new(self.lex_numerical_literal(), pos)),
+                _ => self.lex_single_chars(),
+            };
+
+            match token {
+                Ok(t) => {
+                    if is_significant(&t.kind) {
+                        return Ok(t);
+                    }
+                }
+                Err(err) => return Err(err),
+            }
         }
+    }
+
+    pub fn bump(&self) {
+        let _ = self.next();
     }
 
     pub fn peek(&self) -> Result<Token<'a>, LexerError> {
@@ -64,6 +76,25 @@ impl<'a> Lexer<'a> {
             }
             Err(err) => Err(err),
         }
+    }
+
+    pub fn eat(&self, check: TokenKind) -> bool {
+        if self.is_end() {
+            return false;
+        }
+
+        let peek = self.peek();
+
+        if peek.is_ok() && peek.unwrap().kind == check {
+            self.bump();
+            return true;
+        }
+
+        false
+    }
+
+    pub fn is_end(&self) -> bool {
+        self.cursor.get() >= self.data.len()
     }
 
     fn lex_single_chars(&self) -> Result<Token<'a>, LexerError> {
@@ -208,6 +239,13 @@ fn match_kw(word: &str) -> Option<KeywordKind> {
     }
 }
 
+fn is_significant(kind: &TokenKind) -> bool {
+    !matches!(
+        kind,
+        TokenKind::Whitespace(..) | TokenKind::Comment(..) | TokenKind::LineTerminator(..)
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::Lexer;
@@ -229,15 +267,19 @@ mod tests {
     }
 
     #[test]
+    fn test_ignore_ws() {
+        let l = Lexer::new(b" 'test'");
+        assert_eq!(TokenKind::Literal(LiteralKind::String("test")), l.next().unwrap().kind);
+        assert_eq!(TokenKind::Eof, l.next().unwrap().kind);
+    }
+
+    #[test]
     fn test_kw() {
         let l = Lexer::new(b"select weight from dog;");
 
         assert_eq!(TokenKind::Keyword(KeywordKind::Select), l.next().unwrap().kind);
-        assert_eq!(TokenKind::Whitespace(WhitespaceKind::Space), l.next().unwrap().kind);
         assert_eq!(TokenKind::Identifier("weight"), l.next().unwrap().kind);
-        assert_eq!(TokenKind::Whitespace(WhitespaceKind::Space), l.next().unwrap().kind);
         assert_eq!(TokenKind::Keyword(KeywordKind::From), l.next().unwrap().kind);
-        assert_eq!(TokenKind::Whitespace(WhitespaceKind::Space), l.next().unwrap().kind);
         assert_eq!(TokenKind::Identifier("dog"), l.next().unwrap().kind);
         assert_eq!(TokenKind::Punc(PuncKind::SemiColon), l.next().unwrap().kind);
         assert_eq!(TokenKind::Eof, l.next().unwrap().kind);
@@ -248,23 +290,14 @@ mod tests {
         let l = Lexer::new(b"UPDATE dog SET color = 'golden' WHERE breed = 'golden retriever';");
 
         assert_eq!(TokenKind::Keyword(KeywordKind::Update), l.next().unwrap().kind);
-        assert_eq!(TokenKind::Whitespace(WhitespaceKind::Space), l.next().unwrap().kind);
         assert_eq!(TokenKind::Identifier("dog"), l.next().unwrap().kind);
-        assert_eq!(TokenKind::Whitespace(WhitespaceKind::Space), l.next().unwrap().kind);
         assert_eq!(TokenKind::Keyword(KeywordKind::Set), l.next().unwrap().kind);
-        assert_eq!(TokenKind::Whitespace(WhitespaceKind::Space), l.next().unwrap().kind);
         assert_eq!(TokenKind::Identifier("color"), l.next().unwrap().kind);
-        assert_eq!(TokenKind::Whitespace(WhitespaceKind::Space), l.next().unwrap().kind);
         assert_eq!(TokenKind::Punc(PuncKind::Equal), l.next().unwrap().kind);
-        assert_eq!(TokenKind::Whitespace(WhitespaceKind::Space), l.next().unwrap().kind);
         assert_eq!(TokenKind::Literal(LiteralKind::String("golden")), l.next().unwrap().kind);
-        assert_eq!(TokenKind::Whitespace(WhitespaceKind::Space), l.next().unwrap().kind);
         assert_eq!(TokenKind::Keyword(KeywordKind::Where), l.next().unwrap().kind);
-        assert_eq!(TokenKind::Whitespace(WhitespaceKind::Space), l.next().unwrap().kind);
         assert_eq!(TokenKind::Identifier("breed"), l.next().unwrap().kind);
-        assert_eq!(TokenKind::Whitespace(WhitespaceKind::Space), l.next().unwrap().kind);
         assert_eq!(TokenKind::Punc(PuncKind::Equal), l.next().unwrap().kind);
-        assert_eq!(TokenKind::Whitespace(WhitespaceKind::Space), l.next().unwrap().kind);
         assert_eq!(
             TokenKind::Literal(LiteralKind::String("golden retriever")),
             l.next().unwrap().kind

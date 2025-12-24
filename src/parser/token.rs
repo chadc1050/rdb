@@ -115,6 +115,7 @@ pub enum KeywordKind {
     Primary,
     Procedure,
     Right,
+    Rollback,
     Rownum,
     Select,
     Set,

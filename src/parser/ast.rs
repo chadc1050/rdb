@@ -1,5 +1,5 @@
 pub struct AST<'a> {
-    stmts: Vec<StatementKind<'a>>,
+    pub stmts: Vec<StatementKind<'a>>,
 }
 
 impl<'a> AST<'a> {
@@ -12,6 +12,7 @@ impl<'a> AST<'a> {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub enum StatementKind<'a> {
     Block(BlockStmt<'a>),
     Select(SelectStmt<'a>),
@@ -30,10 +31,12 @@ pub enum ExprKind {
     Literal,
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct BlockStmt<'a> {
     stmts: Vec<StatementKind<'a>>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct SelectStmt<'a> {
     table: &'a str,
     columns: Vec<&'a str>,
@@ -41,30 +44,40 @@ pub struct SelectStmt<'a> {
     limit: Option<usize>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct UpdateStmt<'a> {
     table: &'a str,
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct InsertStmt<'a> {
     table: &'a str,
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct DeleteStmt<'a> {
     table: &'a str,
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct CreateTableStmt<'a> {
     table: &'a str,
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct SelectClause {}
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct FromClause {}
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct WhereClause {}
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct GroupByClause {}
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct HavingClause {}
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct OrderByClause {}
