@@ -1,3 +1,5 @@
+use std::fmt::{Display, Formatter, Result};
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Token<'a> {
     pub kind: TokenKind<'a>,
@@ -21,6 +23,12 @@ pub enum TokenKind<'a> {
     LineTerminator(LineTerminatorKind),
     Whitespace(WhitespaceKind),
     Eof,
+}
+
+impl<'a> Display for TokenKind<'a> {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -123,6 +131,7 @@ pub enum KeywordKind {
     View,
     When,
     Where,
+    Work,
 }
 
 #[derive(Clone, Debug, PartialEq)]

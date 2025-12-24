@@ -5,12 +5,18 @@ pub struct Lexer<'a> {
     cursor: usize,
 }
 
+#[derive(Debug)]
+pub struct LexerError {
+    pub message: String,
+    pub pos: usize,
+}
+
 impl<'a> Lexer<'a> {
     pub fn new(data: &'a [u8]) -> Self {
         Self { data, cursor: 0 }
     }
 
-    pub fn next(&mut self) -> Result<Token<'a>, String> {
+    pub fn next(&mut self) -> Result<Token<'a>, LexerError> {
         if self.cursor >= self.data.len() {
             return Ok(Token::new(TokenKind::Eof, self.cursor));
         }
@@ -26,7 +32,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn lex_single_chars(&mut self) -> Result<Token<'a>, String> {
+    fn lex_single_chars(&mut self) -> Result<Token<'a>, LexerError> {
         let pos = self.cursor;
         let take = self.data[self.cursor];
         self.cursor += 1;
@@ -44,7 +50,10 @@ impl<'a> Lexer<'a> {
             b';' => Ok(Token::new(TokenKind::Punc(PuncKind::SemiColon), pos)),
             b':' => Ok(Token::new(TokenKind::Punc(PuncKind::Colon), pos)),
             b'=' => Ok(Token::new(TokenKind::Punc(PuncKind::Equal), pos)),
-            _ => Err(format!("Unknown artifact at position: {pos}")),
+            _ => Err(LexerError {
+                message: "unknown artifact".to_string(),
+                pos,
+            }),
         }
     }
 
