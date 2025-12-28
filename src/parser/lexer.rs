@@ -39,6 +39,15 @@ impl<'a> Lexer<'a> {
                 b'\'' => Ok(Token::new(self.lex_string_literal(), pos)),
                 b'a'..=b'z' | b'A'..=b'Z' => Ok(Token::new(self.lex_identifier_or_kw(), pos)),
                 b'0'..=b'9' => Ok(Token::new(self.lex_numerical_literal(), pos)),
+                b'*' => {
+                    if self.data[pos + 1] == b'=' {
+                        self.cursor.set(pos + 2);
+                        Ok(Token::new(TokenKind::Punc(PuncKind::MultiplyAssign), pos))
+                    } else {
+                        self.cursor.set(pos + 1);
+                        Ok(Token::new(TokenKind::Punc(PuncKind::Star), pos))
+                    }
+                }
                 _ => self.lex_single_chars(),
             };
 
@@ -55,6 +64,10 @@ impl<'a> Lexer<'a> {
 
     pub fn bump(&self) {
         let _ = self.next();
+    }
+
+    pub fn position(&self) -> usize {
+        self.cursor.get()
     }
 
     pub fn peek(&self) -> Result<Token<'a>, LexerError> {
@@ -219,6 +232,7 @@ fn match_kw(word: &str) -> Option<KeywordKind> {
         "primary" => Some(KeywordKind::Primary),
         "procedure" => Some(KeywordKind::Procedure),
         "right" => Some(KeywordKind::Right),
+        "rollback" => Some(KeywordKind::Rollback),
         "rownum" => Some(KeywordKind::Rownum),
         "select" => Some(KeywordKind::Select),
         "set" => Some(KeywordKind::Set),
